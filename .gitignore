@@ -1,0 +1,18 @@
+# Sensitive server data – NEVER commit
+wip/lovelyindigo.txt
+secrets/
+.env
+*.pem
+
+# Generated on server (contains private keys)
+config/config.json
+vpn-backup/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+*.swp
+*~

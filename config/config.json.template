@@ -1,0 +1,70 @@
+{
+  "log": {
+    "level": "info",
+    "timestamp": true,
+    "output": "/var/log/sing-box/sing-box.log"
+  },
+
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "vless-in",
+
+      "listen": "::",
+      "listen_port": 443,
+
+      "users": [
+        {
+          "name": "<username>",
+          "uuid": "<uuid-v4>",
+          "flow": "xtls-rprx-vision"
+        }
+      ],
+
+      "tls": {
+        "enabled": true,
+        "server_name": "<server_name>",
+        "reality": {
+          "enabled": true,
+          "handshake": {
+            "server": "<server_name>",
+            "server_port": 443
+          },
+          "private_key": "<x25519-private-key>",
+          "short_id": [
+            "<short_id_1>",
+            "<short_id_2>"
+          ]
+        }
+      }
+    },
+
+    {
+      "type": "socks",
+      "tag": "socks-bot",
+      "listen": "127.0.0.1",
+      "listen_port": 1080
+    }
+  ],
+
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    },
+    {
+      "type": "block",
+      "tag": "block"
+    }
+  ],
+
+  "route": {
+    "rules": [
+      {
+        "ip_is_private": true,
+        "outbound": "block"
+      }
+    ],
+    "final": "direct"
+  }
+}

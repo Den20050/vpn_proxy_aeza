@@ -1,0 +1,18 @@
+[Unit]
+Description=Sing-box VPN Service (VLESS+Reality)
+Documentation=https://sing-box.sagernet.org
+After=network.target nss-lookup.target
+
+[Service]
+User=root
+WorkingDirectory=/etc/sing-box
+ExecStart=/usr/local/bin/sing-box run -c /etc/sing-box/config.json
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5s
+# Raised limits for many concurrent connections on a low-resource server
+LimitNOFILE=524288
+LimitNPROC=524288
+
+[Install]
+WantedBy=multi-user.target
