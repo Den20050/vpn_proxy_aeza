@@ -89,7 +89,7 @@ mkdir -p "$BACKUP_DIR" "$LOG_DIR"
 
 # Daily backup at 02:00
 CRON_LINE="0 2 * * * bash ${SCRIPT_DIR}/backup.sh >> ${CRON_LOG} 2>&1"
-(crontab -l 2>/dev/null | grep -v "backup.sh"; echo "$CRON_LINE") | crontab -
+(crontab -l 2>/dev/null | grep -v "backup.sh" || true; echo "$CRON_LINE") | crontab -
 log "Backup cron installed: daily at 02:00"
 
 # Log rotation for sing-box
