@@ -156,7 +156,8 @@ net.core.rmem_max = 16777216
 net.core.wmem_max = 16777216
 EOF
 
-sysctl -p /etc/sysctl.d/99-vpn-harden.conf 2>/dev/null | grep -c "=" | xargs -I{} log "Applied {} sysctl parameters"
+SYSCTL_COUNT=$(sysctl -p /etc/sysctl.d/99-vpn-harden.conf 2>/dev/null | grep -c "=" || true)
+log "Applied ${SYSCTL_COUNT} sysctl parameters"
 
 banner "Step 5/8 — Automatic security updates"
 
