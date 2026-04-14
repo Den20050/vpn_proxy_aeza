@@ -49,7 +49,7 @@ log "Dependencies installed"
 banner "Step 2/7 — Install Sing-box"
 
 bash "${SCRIPT_DIR}/install-singbox.sh"
-sing-box version | head -1 | xargs -I{} log "Installed: {}"
+log "Installed: $(sing-box version | head -1)"
 
 banner "Step 3/7 — Generate keys & config"
 
