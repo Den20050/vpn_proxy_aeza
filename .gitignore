@@ -1,5 +1,6 @@
 # Sensitive server data – NEVER commit
 wip/lovelyindigo.txt
+users/
 secrets/
 .env
 *.pem
