@@ -16,7 +16,8 @@ bash scripts/deploy.sh
 
 ```
 ├── config/
-│   └── config.json.template     # Шаблон конфига Sing-box
+│   ├── config.json.template     # Шаблон конфига Sing-box
+│   └── failover-endpoints.json    # SNI + порты для failover
 ├── systemd/
 │   └── singbox.service          # systemd unit
 ├── scripts/
@@ -26,8 +27,12 @@ bash scripts/deploy.sh
 │   ├── add-user.sh              # Добавить пользователя
 │   ├── show-links.sh            # Показать vless:// ссылки + QR
 │   ├── rotate.sh                # Ротация short_id / server_name
+│   ├── enable-failover.sh       # Multi-SNI failover на существующем сервере
+│   ├── generate-client-config.sh # Клиентский sing-box с urltest
 │   ├── backup.sh                # Резервное копирование
-│   └── update-singbox.sh        # Обновить sing-box до latest
+│   ├── update-singbox.sh        # Обновить sing-box до latest
+│   └── lib/
+│       └── failover-common.sh   # Общая логика failover
 └── docs/
     └── VPN_Singbox_Deployment_Guide.md  # Полная документация
 ```
@@ -52,6 +57,14 @@ bash scripts/deploy.sh
 | `NUM_USERS` | `3` | Количество пользователей |
 | `USER_NAMES` | `user1,user2,...` | Имена через запятую |
 | `SERVER_NAME` | `www.microsoft.com` | Маскировочный домен (SNI) |
+| `ENABLE_FAILOVER` | `1` | 6 SNI (microsoft + RF-friendly) + клиентский urltest |
+
+## Failover (автосмена SNI)
+
+```bash
+bash scripts/enable-failover.sh              # на уже работающем сервере
+bash scripts/generate-client-config.sh user1 # конфиг для sing-box / Hiddify
+```
 
 ## Управление пользователями
 

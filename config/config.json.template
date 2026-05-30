@@ -1,6 +1,6 @@
 {
   "log": {
-    "level": "info",
+    "level": "warn",
     "timestamp": true,
     "output": "/var/log/sing-box/sing-box.log"
   },

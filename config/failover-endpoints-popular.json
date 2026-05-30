@@ -1,0 +1,15 @@
+{
+  "_comment": "Резерв: популярные FAANG-SNI (чаще в правилах DPI в РФ). Не используется по умолчанию.",
+  "urltest": {
+    "url": "https://www.gstatic.com/generate_204",
+    "interval": "1m",
+    "tolerance": 50,
+    "idle_timeout": "15m",
+    "interrupt_exist_connections": true
+  },
+  "endpoints": [
+    {"tag": "vless-ms", "server_name": "www.microsoft.com", "port": 443},
+    {"tag": "vless-apple", "server_name": "www.apple.com", "port": 8443},
+    {"tag": "vless-amazon", "server_name": "www.amazon.com", "port": 8444}
+  ]
+}

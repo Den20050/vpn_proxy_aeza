@@ -19,6 +19,10 @@ for cmd in sing-box jq openssl; do
     command -v "$cmd" &>/dev/null || err "Missing: $cmd"
 done
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/failover-common.sh
+source "${SCRIPT_DIR}/lib/failover-common.sh"
+
 CONFIG="/etc/sing-box/config.json"
 CREDS="/root/vpn-backup/credentials.json"
 BACKUP_DIR="/root/vpn-backup"
@@ -56,9 +60,16 @@ if $ROTATE_SHORT_ID; then
     NEW_SHORT_ID_3=$(openssl rand -hex 6)
 
     TMP=$(mktemp)
-    jq --argjson ids "[\"$NEW_SHORT_ID_1\",\"$NEW_SHORT_ID_2\",\"$NEW_SHORT_ID_3\"]" \
-        '.inbounds[0].tls.reality.short_id = $ids' "$CONFIG" > "$TMP"
-    mv "$TMP" "$CONFIG"
+    SHORT_IDS_JSON="[\"$NEW_SHORT_ID_1\",\"$NEW_SHORT_ID_2\",\"$NEW_SHORT_ID_3\"]"
+    if failover_config_has_multi_inbound "$CONFIG"; then
+        cp "$CONFIG" "$TMP"
+        failover_rotate_short_ids_all_vless "$TMP" "$SHORT_IDS_JSON"
+        mv "$TMP" "$CONFIG"
+    else
+        jq --argjson ids "$SHORT_IDS_JSON" \
+            '.inbounds[0].tls.reality.short_id = $ids' "$CONFIG" > "$TMP"
+        mv "$TMP" "$CONFIG"
+    fi
 
     # Update credentials backup
     jq --arg s1 "$NEW_SHORT_ID_1" --arg s2 "$NEW_SHORT_ID_2" --arg s3 "$NEW_SHORT_ID_3" \
@@ -91,19 +102,21 @@ if $ROTATE_SERVER_NAME; then
     OLD_SERVER_NAME=$(jq -r '.inbounds[0].tls.server_name' "$CONFIG")
     info "Changing server_name: $OLD_SERVER_NAME → $NEW_SERVER_NAME"
 
-    TMP=$(mktemp)
-    jq --arg sn "$NEW_SERVER_NAME" '
-        .inbounds[0].tls.server_name = $sn |
-        .inbounds[0].tls.reality.handshake.server = $sn
-    ' "$CONFIG" > "$TMP"
-    mv "$TMP" "$CONFIG"
-
-    # Update credentials backup
-    jq --arg sn "$NEW_SERVER_NAME" '.server_name = $sn' \
-        "$CREDS" > "${CREDS}.tmp" && mv "${CREDS}.tmp" "$CREDS"
-
-    warn "⚠  server_name changed: $OLD_SERVER_NAME → $NEW_SERVER_NAME"
-    warn "   Clients must update SNI in their connection settings!"
+    if failover_config_has_multi_inbound "$CONFIG"; then
+        warn "Multi-SNI failover active — use endpoints in config/failover-endpoints.json"
+        warn "To change primary SNI only, edit that file and re-run enable-failover.sh"
+    else
+        TMP=$(mktemp)
+        jq --arg sn "$NEW_SERVER_NAME" '
+            .inbounds[0].tls.server_name = $sn |
+            .inbounds[0].tls.reality.handshake.server = $sn
+        ' "$CONFIG" > "$TMP"
+        mv "$TMP" "$CONFIG"
+        jq --arg sn "$NEW_SERVER_NAME" '.server_name = $sn' \
+            "$CREDS" > "${CREDS}.tmp" && mv "${CREDS}.tmp" "$CREDS"
+        warn "⚠  server_name changed: $OLD_SERVER_NAME → $NEW_SERVER_NAME"
+        warn "   Clients must update SNI in their connection settings!"
+    fi
 fi
 
 chmod 600 "$CONFIG" "$CREDS"
@@ -117,23 +130,36 @@ systemctl is-active singbox &>/dev/null \
     && log "Sing-box restarted successfully" \
     || err "Sing-box failed to restart — check: journalctl -u singbox -n 30"
 
-# ── Show updated links ────────────────────────────────────────────────────────
-SERVER_IP=$(jq -r '.server_ip'      "$CREDS")
-SN=$(jq -r '.server_name'           "$CREDS")
-PK=$(jq -r '.public_key'            "$CREDS")
-SID=$(jq -r '.short_ids.primary'    "$CREDS")
+# ── Regenerate links & client configs ─────────────────────────────────────────
+if jq -e '.failover.enabled == true' "$CREDS" &>/dev/null; then
+    failover_regenerate_user_links "$CREDS"
+    failover_write_vless_links_file "$CREDS" "/root/vpn-backup/vless-links.txt"
+    bash "${SCRIPT_DIR}/generate-client-config.sh"
+fi
 
 echo ""
 echo "══════════════════════════════════════════════════════════════════"
 echo "  Updated VLESS links (new short_id / server_name)"
 echo "══════════════════════════════════════════════════════════════════"
 
-jq -r '.users[] | "\(.name)|\(.uuid)"' "$CREDS" | while IFS='|' read -r NAME UUID; do
-    LINK="vless://${UUID}@${SERVER_IP}:443?security=reality&sni=${SN}&fp=chrome&pbk=${PK}&sid=${SID}&flow=xtls-rprx-vision&type=tcp#VPN-${NAME}"
-    echo ""
-    echo "── ${NAME}: $LINK"
-    command -v qrencode &>/dev/null && qrencode -t ANSIUTF8 "$LINK"
-done
+if jq -e '.failover.enabled == true' "$CREDS" &>/dev/null; then
+    jq -r '.users[] | .name + "|" + .link' "$CREDS" | while IFS='|' read -r NAME LINK; do
+        echo ""
+        echo "── ${NAME}: $LINK"
+        command -v qrencode &>/dev/null && qrencode -t ANSIUTF8 "$LINK"
+    done
+else
+    SERVER_IP=$(jq -r '.server_ip' "$CREDS")
+    SN=$(jq -r '.server_name' "$CREDS")
+    PK=$(jq -r '.public_key' "$CREDS")
+    SID=$(jq -r '.short_ids.primary' "$CREDS")
+    jq -r '.users[] | "\(.name)|\(.uuid)"' "$CREDS" | while IFS='|' read -r NAME UUID; do
+        LINK="vless://${UUID}@${SERVER_IP}:443?security=reality&sni=${SN}&fp=chrome&pbk=${PK}&sid=${SID}&flow=xtls-rprx-vision&type=tcp#VPN-${NAME}"
+        echo ""
+        echo "── ${NAME}: $LINK"
+        command -v qrencode &>/dev/null && qrencode -t ANSIUTF8 "$LINK"
+    done
+fi
 
 echo ""
-log "Rotation complete. Send updated links to affected users."
+log "Rotation complete. Send updated links (and client JSON if failover) to users."

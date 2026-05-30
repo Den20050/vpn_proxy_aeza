@@ -1,0 +1,53 @@
+{
+  "urltest": {
+    "url": "https://www.gstatic.com/generate_204",
+    "interval": "1m",
+    "tolerance": 50,
+    "idle_timeout": "15m",
+    "interrupt_exist_connections": true
+  },
+  "endpoints": [
+    {
+      "tag": "vless-ms",
+      "server_name": "www.microsoft.com",
+      "port": 443,
+      "tier": "primary",
+      "note": "Основной SNI; vless:// ссылки. Популярный — возможен прицельный DPI."
+    },
+    {
+      "tag": "vless-mozilla",
+      "server_name": "addons.mozilla.org",
+      "port": 8443,
+      "tier": "rf-friendly",
+      "note": "FOSS/CDN, умеренный трафик, редко в списках блокировок."
+    },
+    {
+      "tag": "vless-debian",
+      "server_name": "www.debian.org",
+      "port": 8444,
+      "tier": "rf-friendly",
+      "note": "Open-source, нишевый корпоративный профиль."
+    },
+    {
+      "tag": "vless-kernel",
+      "server_name": "www.kernel.org",
+      "port": 8445,
+      "tier": "rf-friendly",
+      "note": "Нишевый техдомен, стабильный TLS 1.3."
+    },
+    {
+      "tag": "vless-jsdelivr",
+      "server_name": "cdn.jsdelivr.net",
+      "port": 8446,
+      "tier": "rf-friendly",
+      "note": "Публичный CDN для npm/github — не FAANG."
+    },
+    {
+      "tag": "vless-nvidia",
+      "server_name": "www.nvidia.com",
+      "port": 8447,
+      "tier": "rf-friendly",
+      "note": "Железо/драйверы, меньше политического внимания, чем у apple/amazon."
+    }
+  ]
+}

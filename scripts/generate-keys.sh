@@ -4,6 +4,7 @@
 #   bash generate-keys.sh                           — init with defaults (3 users)
 #   NUM_USERS=5 USER_NAMES="alice,bob,..." bash generate-keys.sh
 #   SERVER_NAME="www.apple.com" bash generate-keys.sh
+#   ENABLE_FAILOVER=0 bash generate-keys.sh         — single SNI only
 set -euo pipefail
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
@@ -13,6 +14,10 @@ err()  { echo -e "${RED}[✗]${NC} $*" >&2; exit 1; }
 info() { echo -e "${BLUE}[→]${NC} $*"; }
 
 [[ $EUID -ne 0 ]] && err "Run as root: sudo bash $0"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/failover-common.sh
+source "${SCRIPT_DIR}/lib/failover-common.sh"
 
 for cmd in sing-box jq openssl curl; do
     command -v "$cmd" &>/dev/null || err "Missing dependency: $cmd"
@@ -24,19 +29,13 @@ BACKUP_DIR="/root/vpn-backup"
 CONFIG_FILE="${CONFIG_DIR}/config.json"
 BACKUP_CREDS="${BACKUP_DIR}/credentials.json"
 BACKUP_LINKS="${BACKUP_DIR}/vless-links.txt"
+ENDPOINTS_FILE="$(failover_endpoints_file)"
 
 NUM_USERS="${NUM_USERS:-3}"
 USER_NAMES="${USER_NAMES:-}"
 SERVER_NAME="${SERVER_NAME:-www.microsoft.com}"
 VLESS_PORT="${VLESS_PORT:-443}"
 SOCKS_PORT="${SOCKS_PORT:-1080}"
-
-# Five tested server_name options with notes:
-# www.microsoft.com  — top-1 global traffic, very stable
-# www.apple.com      — high trust, clean TLS fingerprint
-# www.amazon.com     — massive traffic, rarely scrutinised
-# addons.mozilla.org — smaller but reliable
-# www.lovelive-anime.jp — common in community configs, but niche
 
 mkdir -p "$CONFIG_DIR" "$BACKUP_DIR"
 
@@ -55,9 +54,10 @@ PUBLIC_KEY=$(echo "$KEYPAIR"  | awk '/PublicKey/{print $2}')
 log "Keypair generated"
 
 # ── Generate short IDs ────────────────────────────────────────────────────────
-SHORT_ID_1=$(openssl rand -hex 8)   # 8 bytes — full length
-SHORT_ID_2=$(openssl rand -hex 4)   # 4 bytes — shorter variant
-SHORT_ID_3=$(openssl rand -hex 6)   # 6 bytes — medium variant
+SHORT_ID_1=$(openssl rand -hex 8)
+SHORT_ID_2=$(openssl rand -hex 4)
+SHORT_ID_3=$(openssl rand -hex 6)
+SHORT_IDS_JSON="[\"$SHORT_ID_1\",\"$SHORT_ID_2\",\"$SHORT_ID_3\"]"
 log "Short IDs: $SHORT_ID_1 / $SHORT_ID_2 / $SHORT_ID_3"
 
 # ── Build user list ───────────────────────────────────────────────────────────
@@ -73,7 +73,6 @@ fi
 info "Generating ${#NAMES_ARR[@]} users: ${NAMES_ARR[*]}"
 
 USERS_JSON="[]"
-declare -a VLESS_LINKS=()
 declare -a USER_ENTRIES=()
 
 for NAME in "${NAMES_ARR[@]}"; do
@@ -81,78 +80,57 @@ for NAME in "${NAMES_ARR[@]}"; do
     USERS_JSON=$(echo "$USERS_JSON" | jq \
         --arg n "$NAME" --arg u "$UUID" --arg f "xtls-rprx-vision" \
         '. += [{"name": $n, "uuid": $u, "flow": $f}]')
-
-    # vless:// link — URI-encode the server name
-    LINK="vless://${UUID}@${SERVER_IP}:${VLESS_PORT}"
-    LINK+="?security=reality&sni=${SERVER_NAME}&fp=chrome"
-    LINK+="&pbk=${PUBLIC_KEY}&sid=${SHORT_ID_1}"
-    LINK+="&flow=xtls-rprx-vision&type=tcp"
-    LINK+="#VPN-${NAME}"
-    VLESS_LINKS+=("$LINK")
-
-    USER_ENTRIES+=("{\"name\":\"${NAME}\",\"uuid\":\"${UUID}\",\"link\":\"${LINK}\"}")
+    USER_ENTRIES+=("{\"name\":\"${NAME}\",\"uuid\":\"${UUID}\"}")
     log "  User: $NAME  UUID: $UUID"
 done
 
 # ── Write config.json ─────────────────────────────────────────────────────────
 info "Writing ${CONFIG_FILE}..."
-jq -n \
-    --arg server_name "$SERVER_NAME" \
-    --arg private_key "$PRIVATE_KEY" \
-    --argjson short_ids "[\"$SHORT_ID_1\",\"$SHORT_ID_2\",\"$SHORT_ID_3\"]" \
-    --argjson users "$USERS_JSON" \
-    --argjson socks_port "$SOCKS_PORT" \
-    --argjson vless_port "$VLESS_PORT" \
-    '{
-      "log": {
-        "level": "info",
-        "timestamp": true,
-        "output": "/var/log/sing-box/sing-box.log"
-      },
-      "inbounds": [
-        {
-          "type": "vless",
-          "tag": "vless-in",
-          "listen": "::",
-          "listen_port": $vless_port,
-          "users": $users,
-          "tls": {
-            "enabled": true,
-            "server_name": $server_name,
-            "reality": {
-              "enabled": true,
-              "handshake": {
-                "server": $server_name,
-                "server_port": 443
-              },
-              "private_key": $private_key,
-              "short_id": $short_ids
+
+if failover_enabled && [[ -f "$ENDPOINTS_FILE" ]]; then
+    PRIMARY_SN=$(jq -r '.endpoints[0].server_name' "$ENDPOINTS_FILE")
+    SERVER_NAME="$PRIMARY_SN"
+    failover_merge_server_config "$USERS_JSON" "$PRIVATE_KEY" "$SHORT_IDS_JSON" "$ENDPOINTS_FILE" "$SOCKS_PORT" \
+        > "$CONFIG_FILE"
+    log "Config with failover SNI: $(jq -r '[.inbounds[]|select(.type=="vless")|.tls.server_name]|join(", ")' "$CONFIG_FILE")"
+else
+    jq -n \
+        --arg server_name "$SERVER_NAME" \
+        --arg private_key "$PRIVATE_KEY" \
+        --argjson short_ids "$SHORT_IDS_JSON" \
+        --argjson users "$USERS_JSON" \
+        --argjson socks_port "$SOCKS_PORT" \
+        --argjson vless_port "$VLESS_PORT" \
+        '{
+          log: {level: "warn", timestamp: true, output: "/var/log/sing-box/sing-box.log"},
+          inbounds: [{
+            type: "vless", tag: "vless-in", listen: "::", listen_port: $vless_port,
+            users: $users,
+            tls: {
+              enabled: true, server_name: $server_name,
+              reality: {
+                enabled: true,
+                handshake: {server: $server_name, server_port: 443},
+                private_key: $private_key, short_id: $short_ids
+              }
             }
-          }
-        },
-        {
-          "type": "socks",
-          "tag": "socks-bot",
-          "listen": "127.0.0.1",
-          "listen_port": $socks_port
-        }
-      ],
-      "outbounds": [
-        {"type": "direct", "tag": "direct"},
-        {"type": "block",  "tag": "block"}
-      ],
-      "route": {
-        "rules": [
-          {"ip_is_private": true, "outbound": "block"}
-        ],
-        "final": "direct"
-      }
-    }' > "$CONFIG_FILE"
+          }, {
+            type: "socks", tag: "socks-bot", listen: "127.0.0.1", listen_port: $socks_port
+          }],
+          outbounds: [{type: "direct", tag: "direct"}, {type: "block", tag: "block"}],
+          route: {rules: [{ip_is_private: true, outbound: "block"}], final: "direct"}
+        }' > "$CONFIG_FILE"
+fi
 
 chmod 600 "$CONFIG_FILE"
 log "Config written: $CONFIG_FILE"
 
 # ── Save credentials backup ───────────────────────────────────────────────────
+FAILOVER_JSON="null"
+if failover_enabled && [[ -f "$ENDPOINTS_FILE" ]]; then
+    FAILOVER_JSON=$(failover_build_creds_failover_json "$ENDPOINTS_FILE")
+fi
+
 CREDS_JSON=$(jq -n \
     --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg server_ip "$SERVER_IP" \
@@ -163,34 +141,40 @@ CREDS_JSON=$(jq -n \
     --arg short_id_2 "$SHORT_ID_2" \
     --arg short_id_3 "$SHORT_ID_3" \
     --argjson users "$(printf '%s\n' "${USER_ENTRIES[@]}" | jq -s '.')" \
+    --argjson failover "$FAILOVER_JSON" \
     '{
         generated_at: $generated_at,
         server_ip: $server_ip,
         server_name: $server_name,
         private_key: $private_key,
         public_key: $public_key,
-        short_ids: {
-            primary: $short_id_1,
-            secondary: $short_id_2,
-            tertiary: $short_id_3
-        },
+        short_ids: {primary: $short_id_1, secondary: $short_id_2, tertiary: $short_id_3},
+        failover: $failover,
         users: $users
     }')
 
 echo "$CREDS_JSON" > "$BACKUP_CREDS"
 chmod 600 "$BACKUP_CREDS"
 
-# ── Save vless links to plain text ─────────────────────────────────────────────
-{
-    echo "# VLESS links — generated $(date -u)"
-    echo "# Public key: $PUBLIC_KEY"
-    echo "# Short IDs: $SHORT_ID_1 / $SHORT_ID_2 / $SHORT_ID_3"
-    echo ""
-    for link in "${VLESS_LINKS[@]}"; do
-        echo "$link"
+if [[ "$FAILOVER_JSON" != "null" ]]; then
+    failover_regenerate_user_links "$BACKUP_CREDS"
+    failover_write_vless_links_file "$BACKUP_CREDS" "$BACKUP_LINKS"
+    mkdir -p "${BACKUP_DIR}/clients"
+    failover_generate_all_client_configs "$BACKUP_CREDS" "${BACKUP_DIR}/clients"
+else
+    {
+        echo "# VLESS links — generated $(date -u)"
+        echo "# Public key: $PUBLIC_KEY"
+        echo "# Short IDs: $SHORT_ID_1 / $SHORT_ID_2 / $SHORT_ID_3"
         echo ""
-    done
-} > "$BACKUP_LINKS"
+        jq -r '.users[] | "\(.name): vless://\(.uuid)@'"$SERVER_IP"':'"$VLESS_PORT"'?security=reality&sni='"$SERVER_NAME"'&fp=chrome&pbk='"$PUBLIC_KEY"'&sid='"$SHORT_ID_1"'&flow=xtls-rprx-vision&type=tcp#VPN-\(.name)"' "$BACKUP_CREDS" 2>/dev/null || true
+        for NAME in "${NAMES_ARR[@]}"; do
+            UUID=$(echo "$USERS_JSON" | jq -r --arg n "$NAME" '.[] | select(.name==$n) | .uuid')
+            echo "vless://${UUID}@${SERVER_IP}:${VLESS_PORT}?security=reality&sni=${SERVER_NAME}&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_ID_1}&flow=xtls-rprx-vision&type=tcp#VPN-${NAME}"
+            echo ""
+        done
+    } > "$BACKUP_LINKS"
+fi
 chmod 600 "$BACKUP_LINKS"
 
 log "Credentials saved: $BACKUP_CREDS"
@@ -201,28 +185,39 @@ echo "════════════════════════�
 echo "  VLESS + Reality — Connection Links"
 echo "══════════════════════════════════════════════════════════════════"
 
-for i in "${!VLESS_LINKS[@]}"; do
-    USERNAME="${NAMES_ARR[$i]}"
-    LINK="${VLESS_LINKS[$i]}"
-
-    echo ""
-    echo "── ${USERNAME} ──────────────────────────────────────────────────"
-    echo "$LINK"
-    echo ""
-
-    if command -v qrencode &>/dev/null; then
-        qrencode -t ANSIUTF8 "$LINK"
-        QR_FILE="${BACKUP_DIR}/qr-${USERNAME}.png"
-        qrencode -o "$QR_FILE" "$LINK"
-        echo "  QR saved: $QR_FILE"
-    else
-        warn "qrencode not installed — no QR codes generated"
-    fi
-done
+if jq -e '.failover.enabled == true' "$BACKUP_CREDS" &>/dev/null; then
+    jq -r '.users[] | .name + "|" + .link' "$BACKUP_CREDS" | while IFS='|' read -r USERNAME LINK; do
+        echo ""
+        echo "── ${USERNAME} (primary) ─────────────────────────────────────────"
+        echo "$LINK"
+        echo "  Auto-failover client: ${BACKUP_DIR}/clients/${USERNAME}-singbox.json"
+        if command -v qrencode &>/dev/null; then
+            qrencode -t ANSIUTF8 "$LINK"
+            qrencode -o "${BACKUP_DIR}/qr-${USERNAME}.png" "$LINK"
+        fi
+    done
+else
+    for i in "${!NAMES_ARR[@]}"; do
+        USERNAME="${NAMES_ARR[$i]}"
+        UUID=$(echo "$USERS_JSON" | jq -r --arg n "$USERNAME" '.[] | select(.name==$n) | .uuid')
+        LINK="vless://${UUID}@${SERVER_IP}:${VLESS_PORT}?security=reality&sni=${SERVER_NAME}&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_ID_1}&flow=xtls-rprx-vision&type=tcp#VPN-${USERNAME}"
+        echo ""
+        echo "── ${USERNAME} ──────────────────────────────────────────────────"
+        echo "$LINK"
+        if command -v qrencode &>/dev/null; then
+            qrencode -t ANSIUTF8 "$LINK"
+            qrencode -o "${BACKUP_DIR}/qr-${USERNAME}.png" "$LINK"
+        fi
+    done
+fi
 
 echo ""
 echo "══════════════════════════════════════════════════════════════════"
 echo "  Public key (share with clients): $PUBLIC_KEY"
 echo "  Short IDs: $SHORT_ID_1 | $SHORT_ID_2 | $SHORT_ID_3"
+if jq -e '.failover.enabled == true' "$BACKUP_CREDS" &>/dev/null; then
+    echo "  Failover SNIs: $(jq -r '[.failover.endpoints[].server_name]|join(", ")' "$BACKUP_CREDS")"
+    echo "  Client configs: ${BACKUP_DIR}/clients/"
+fi
 echo "  All links saved: $BACKUP_LINKS"
 echo "══════════════════════════════════════════════════════════════════"
