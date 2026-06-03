@@ -56,8 +56,8 @@ bash scripts/deploy.sh
 |-----------|--------------|---------|
 | `NUM_USERS` | `3` | Количество пользователей |
 | `USER_NAMES` | `user1,user2,...` | Имена через запятую |
-| `SERVER_NAME` | `www.microsoft.com` | Маскировочный домен (SNI) |
-| `ENABLE_FAILOVER` | `1` | 6 SNI (microsoft + RF-friendly) + клиентский urltest |
+| `SERVER_NAME` | `www.debian.org` | Primary SNI (при failover берётся из endpoints[0]) |
+| `ENABLE_FAILOVER` | `1` | 6 SNI (debian primary + RF-friendly + microsoft backup) |
 
 ## Failover (автосмена SNI)
 

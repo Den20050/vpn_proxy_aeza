@@ -34,7 +34,7 @@ REPO_DIR="$(dirname "$SCRIPT_DIR")"
 # ── Config ────────────────────────────────────────────────────────────────────
 NUM_USERS="${NUM_USERS:-3}"
 USER_NAMES="${USER_NAMES:-}"
-SERVER_NAME="${SERVER_NAME:-www.microsoft.com}"
+SERVER_NAME="${SERVER_NAME:-www.debian.org}"
 ENABLE_FAILOVER="${ENABLE_FAILOVER:-1}"
 BACKUP_DIR="/root/vpn-backup"
 LOG_DIR="/var/log/sing-box"

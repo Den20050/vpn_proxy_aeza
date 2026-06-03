@@ -33,7 +33,7 @@ ENDPOINTS_FILE="$(failover_endpoints_file)"
 
 NUM_USERS="${NUM_USERS:-3}"
 USER_NAMES="${USER_NAMES:-}"
-SERVER_NAME="${SERVER_NAME:-www.microsoft.com}"
+SERVER_NAME="${SERVER_NAME:-www.debian.org}"
 VLESS_PORT="${VLESS_PORT:-443}"
 SOCKS_PORT="${SOCKS_PORT:-1080}"
 

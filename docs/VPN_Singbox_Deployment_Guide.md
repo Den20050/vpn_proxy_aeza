@@ -243,12 +243,12 @@ WantedBy=multi-user.target
 
 | server_name | Порт | Риск DPI в РФ | Комментарий |
 |-------------|------|---------------|-------------|
-| `www.microsoft.com` | 443 | средний | Primary; совместимость с vless:// QR |
+| `www.debian.org` | 443 | низкий | **Primary**; vless:// ссылки, стабилен из РФ |
 | `addons.mozilla.org` | 8443 | низкий | FOSS, умеренный трафик |
-| `www.debian.org` | 8444 | низкий | Open-source, нишевый профиль |
-| `www.kernel.org` | 8445 | низкий | Техдомен, стабильный TLS |
-| `cdn.jsdelivr.net` | 8446 | низкий | CDN (npm/GitHub), не FAANG |
-| `www.nvidia.com` | 8447 | низкий | Железо/драйверы |
+| `www.kernel.org` | 8444 | низкий | Техдомен, стабильный TLS |
+| `cdn.jsdelivr.net` | 8445 | низкий | CDN (npm/GitHub), не FAANG |
+| `www.nvidia.com` | 8446 | низкий | Железо/драйверы |
+| `www.microsoft.com` | 8447 | средний | Резерв (urltest), не в новых QR |
 
 **Популярные (резерв)** — [`config/failover-endpoints-popular.json`](../config/failover-endpoints-popular.json): apple, amazon. Чаще попадают в эвристики DPI; использовать только если нишевые SNI не подходят.
 
@@ -369,12 +369,12 @@ systemctl reload singbox
 
 | SNI | Порт | Назначение |
 |-----|------|------------|
-| `www.microsoft.com` | 443 | Primary, vless:// ссылки |
+| `www.debian.org` | 443 | Primary, vless:// ссылки |
 | `addons.mozilla.org` | 8443 | RF-friendly |
-| `www.debian.org` | 8444 | RF-friendly |
-| `www.kernel.org` | 8445 | RF-friendly |
-| `cdn.jsdelivr.net` | 8446 | RF-friendly CDN |
-| `www.nvidia.com` | 8447 | RF-friendly |
+| `www.kernel.org` | 8444 | RF-friendly |
+| `cdn.jsdelivr.net` | 8445 | RF-friendly CDN |
+| `www.nvidia.com` | 8446 | RF-friendly |
+| `www.microsoft.com` | 8447 | Резерв (failover) |
 
 Один UUID и один Reality-ключ для всех. Список редактируется в [`config/failover-endpoints.json`](../config/failover-endpoints.json). После изменений: `bash scripts/enable-failover.sh --sync`.
 
@@ -410,7 +410,7 @@ bash scripts/generate-client-config.sh
 
 Параметры `urltest` (интервал, `idle_timeout`, `interrupt_exist_connections`) — в `config/failover-endpoints.json`.
 
-> Обычная одна vless:// ссылка (только `microsoft.com:443`) по-прежнему работает. Failover JSON нужен для автосмены SNI без ручного переподключения.
+> Одна vless:// ссылка ведёт на **primary** (`debian.org:443` по умолчанию). Старые QR с `microsoft.com:443` перестанут совпадать с primary — раздайте новые ссылки или JSON с failover.
 
 Отключить failover при деплое: `ENABLE_FAILOVER=0 bash scripts/deploy.sh`
 
@@ -491,7 +491,7 @@ WantedBy=multi-user.target
       "flow": "xtls-rprx-vision",
       "tls": {
         "enabled": true,
-        "server_name": "www.microsoft.com",
+        "server_name": "www.debian.org",
         "utls": {"enabled": true, "fingerprint": "chrome"},
         "reality": {
           "enabled": true,
