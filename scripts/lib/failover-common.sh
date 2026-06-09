@@ -144,7 +144,7 @@ failover_rotate_short_ids_all_vless() {
 
 failover_build_creds_failover_json() {
     local endpoints_file="$1"
-    jq -c '{enabled: true, urltest: .urltest, endpoints: .endpoints}' "$endpoints_file"
+    jq -c '{enabled: true, urltest: .urltest, urltest_bot: (.urltest_bot // .urltest), endpoints: .endpoints}' "$endpoints_file"
 }
 
 failover_regenerate_user_links() {
@@ -211,6 +211,8 @@ failover_generate_client_config() {
         --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         '
         ($failover.endpoints | map(.tag)) as $tags
+        | (if $username == "bot" then ($failover.urltest_bot // $failover.urltest) else $failover.urltest end) as $ut
+        | ($username == "bot") as $is_bot
         | {
             log: {level: "warn", timestamp: true},
             dns: {
@@ -233,6 +235,7 @@ failover_generate_client_config() {
                     uuid: $uuid,
                     flow: "xtls-rprx-vision",
                     network: "tcp",
+                    connect_timeout: (if $is_bot then "5s" else null end),
                     tls: {
                         enabled: true,
                         server_name: .server_name,
@@ -243,16 +246,16 @@ failover_generate_client_config() {
                             short_id: $short_id
                         }
                     }
-                }]
+                } | if .connect_timeout == null then del(.connect_timeout) else . end]
                 + [{
                     type: "urltest",
                     tag: "auto",
                     outbounds: $tags,
-                    url: $failover.urltest.url,
-                    interval: $failover.urltest.interval,
-                    tolerance: $failover.urltest.tolerance,
-                    idle_timeout: $failover.urltest.idle_timeout,
-                    interrupt_exist_connections: $failover.urltest.interrupt_exist_connections
+                    url: $ut.url,
+                    interval: $ut.interval,
+                    tolerance: $ut.tolerance,
+                    idle_timeout: $ut.idle_timeout,
+                    interrupt_exist_connections: $ut.interrupt_exist_connections
                 }]
                 + [
                     {type: "direct", tag: "direct"},

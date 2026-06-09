@@ -6,6 +6,13 @@
     "idle_timeout": "15m",
     "interrupt_exist_connections": true
   },
+  "urltest_bot": {
+    "url": "https://www.gstatic.com/generate_204",
+    "interval": "5s",
+    "tolerance": 50,
+    "idle_timeout": "15m",
+    "interrupt_exist_connections": true
+  },
   "endpoints": [
     {
       "tag": "vless-debian",
